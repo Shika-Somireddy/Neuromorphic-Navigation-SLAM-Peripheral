@@ -7,65 +7,64 @@ from cocotb.triggers import ClockCycles
 
 from tqv import TinyQV
 
-# When submitting your design, change this to the peripheral number
-# in peripherals.v.  e.g. if your design is i_user_peri05, set this to 5.
-# The peripheral number is not used by the test harness.
 PERIPHERAL_NUM = 13
+
+async def dump_state(dut, tqv, label=""):
+    """Helper to log internal register + outputs."""
+    raw0 = await tqv.read_word_reg(0)   # sensor_input
+    pos  = await tqv.read_word_reg(8)   # pos_x/pos_y packed
+    x = pos & 0xFFFF
+    y = (pos >> 16) & 0xFFFF
+    dut._log.info(f"[{label}] sensor_input=0x{raw0:08X}, pos_x={x} (0x{x:04X}), pos_y={y} (0x{y:04X}), uo_out=0x{int(dut.uo_out.value):02X}")
+    return raw0, x, y
+
 
 @cocotb.test()
 async def test_project(dut):
-    dut._log.info("Start SLAM Peripheral Test")
+    dut._log.info("Start SLAM Peripheral Test (extended debug)")
 
-    # Set the clock period to 100 ns (10 MHz)
+    # Clock
     clock = Clock(dut.clk, 100, units="ns")
     cocotb.start_soon(clock.start())
 
-    # Interact with your design's registers through this TinyQV class.
-    # This will allow the same test to be run when your design is integrated
-    # with TinyQV - the implementation of this class will be replaces with a
-    # different version that uses Risc-V instructions instead of the SPI test
-    # harness interface to read and write the registers.
     tqv = TinyQV(dut, PERIPHERAL_NUM)
 
-    #reset
+    # Reset
     await tqv.reset()
+    dut._log.info("Reset done")
 
-    dut._log.info("Testing SLAM movement logic")
-
-    # Enable updates (write control_flags[0] = 1 at address 4)
+    # Enable updates
     await tqv.write_word_reg(4, 0x1)
+    dut._log.info("Enabled control_flags[0] = 1 at addr 4")
 
-    # Move east by 5 (direction=0, step=5)
-    await tqv.write_word_reg(0, 0x0005)
-    await ClockCycles(dut.clk, 2)
+    # === Test 1: Move east by 5 ===
+    await tqv.write_word_reg(0, 0x0005)   # dir=0, step=5
+    await ClockCycles(dut.clk, 4)
+    raw0, x, y = await dump_state(dut, tqv, "Move East by 5")
+    assert x == 5 and y == 0, f"Expected X=5, Y=0, got X={x}, Y={y} (raw0=0x{raw0:08X})"
 
-    # Read position (address 8) -> X=5, Y=0
-    pos = await tqv.read_word_reg(8)
-    x = pos & 0xFFFF
-    y = (pos >> 16) & 0xFFFF
-    assert x == 5 and y == 0, f"Expected X=5, Y=0, got X={x}, Y={y}"
+    # === Test 2: Move north by 3 ===
+    await tqv.write_word_reg(0, (1 << 16) | 0x0003)   # dir=1, step=3
+    await ClockCycles(dut.clk, 4)
+    raw0, x, y = await dump_state(dut, tqv, "Move North by 3")
+    assert x == 5 and y == 3, f"Expected X=5, Y=3, got X={x}, Y={y} (raw0=0x{raw0:08X})"
 
-    # Move north by 3 (direction=1, step=3)
-    await tqv.write_word_reg(0, (1 << 16) | 0x0003)
-    await ClockCycles(dut.clk, 2)
+    # === Test 3: Check uo_out lower bits ===
+    expect_uo = ((y & 0xF) << 4) | (x & 0xF)
+    got_uo = int(dut.uo_out.value)
+    dut._log.info(f"[uo_out check] expect=0x{expect_uo:02X}, got=0x{got_uo:02X}")
+    assert got_uo == expect_uo
 
-    pos = await tqv.read_word_reg(8)
-    x = pos & 0xFFFF
-    y = (pos >> 16) & 0xFFFF
-    assert x == 5 and y == 3, f"Expected X=5, Y=3, got X={x}, Y={y}"
-
-    # Check uo_out reflects lower 4 bits of X and Y
-    assert dut.uo_out.value == ((y & 0xF) << 4 | (x & 0xF))
-
-    # Move east until X > 1000 to trigger interrupt
-    await tqv.write_word_reg(0, 0x0400)  # step=1024, dir=0
-    await ClockCycles(dut.clk, 2)
-
+    # === Test 4: Trigger interrupt with big X step ===
+    await tqv.write_word_reg(0, 0x0400)   # step=1024, dir=0
+    await ClockCycles(dut.clk, 4)
+    raw0, x, y = await dump_state(dut, tqv, "Trigger interrupt (X>1000)")
     assert await tqv.is_interrupt_asserted(), "Interrupt not triggered when X>1000"
 
-    # Clear interrupt by writing 1 to address 16
+    # === Test 5: Clear interrupt ===
     await tqv.write_word_reg(16, 0x1)
-    await ClockCycles(dut.clk, 1)
+    await ClockCycles(dut.clk, 2)
+    dut._log.info("[Interrupt clear] user_interrupt=%d" % int(dut.user_interrupt.value))
     assert not await tqv.is_interrupt_asserted(), "Interrupt not cleared"
 
     dut._log.info("SLAM peripheral test completed successfully")
