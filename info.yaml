@@ -1,10 +1,10 @@
 # Tiny Tapeout project information
 project:
-  title:        ""      # Project title
-  author:       ""      # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  ""      # One line description of what your project does
-  language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
+  title:        "Neuromorphic Navigation & SLAM Peripheral"      # Project title
+  author:       "Rishika Somireddy"      # Your name
+  discord:      "shika_31872"      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
+  description:  "Neuromorphic hardware peripheral for real-time navigation and coarse SLAM using head-direction and grid-cell networks"      # One line description of what your project does
+  language:     "SystemVerilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
   clock_hz:     64000000  # Clock frequency in Hz (or 0 if not applicable)
 
   # How many tiles your design occupies? A single tile is about 167x108 uM.
@@ -17,7 +17,7 @@ project:
   # Source files must be in ./src and you must list each source file separately, one per line.
   # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
-    - "peripheral.v"
+    - "peripheral.sv"
     - "tt_wrapper.v"
     - "test_harness/falling_edge_detector.sv"
     - "test_harness/rising_edge_detector.sv"
@@ -29,6 +29,7 @@ project:
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 # This section is for the datasheet/website. Use descriptive names (e.g., RX, TX, MOSI, SCL, SEG_A, etc.).
 pinout:
+  # Inputs
   # Inputs
   ui[0]: ""
   ui[1]: ""
@@ -48,6 +49,7 @@ pinout:
   uo[5]: ""
   uo[6]: ""
   uo[7]: ""
+
 
   # Bidirectional pins
   uio[0]: "user_interrupt"
