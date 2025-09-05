@@ -13,13 +13,13 @@ You can also include images in this folder and reference them in the markdown. E
 
 # Your project title
 
-Author: Your Name
+Author: Rishika Somireddy
 
-Peripheral index: nn
+Peripheral index: 13
 
 ## What it does
 
-Explain what your peripheral does and how it works
+This peripheral to create a map of a local area with 
 
 ## Register map
 
@@ -35,4 +35,4 @@ Explain how to use your project
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+Probably would have to build custom hardware for this, meant to be connected to robotics or systems
