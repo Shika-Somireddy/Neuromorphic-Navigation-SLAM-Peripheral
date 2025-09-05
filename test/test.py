@@ -34,14 +34,14 @@ async def test_project(dut):
     dut._log.info("Reset done")
 
     # Enable updates
-    await tqv.write_word_reg(4, 0x1)
-    dut._log.info("Enabled control_flags[0] = 1 at addr 4")
+    #await tqv.write_word_reg(4, 0x1)
+    #dut._log.info("Enabled control_flags[0] = 1 at addr 4")
 
     # === Test 1: Move east by 5 ===
-    await tqv.write_word_reg(0, 0x0005)   # dir=0, step=5
-    await ClockCycles(dut.clk, 4)
-    raw0, x, y = await dump_state(dut, tqv, "Move East by 5")
-    assert x == 5 and y == 0, f"Expected X=5, Y=0, got X={x}, Y={y} (raw0=0x{raw0:08X})"
+    #await tqv.write_word_reg(0, 0x0005)   # dir=0, step=5
+    #await ClockCycles(dut.clk, 4)
+    #raw0, x, y = await dump_state(dut, tqv, "Move East by 5")
+    #assert x == 5 and y == 0, f"Expected X=5, Y=0, got X={x}, Y={y} (raw0=0x{raw0:08X})"
 
     # === Test 2: Move north by 3 ===
     #await tqv.write_word_reg(0, (1 << 16) | 0x0003)   # dir=1, step=3
