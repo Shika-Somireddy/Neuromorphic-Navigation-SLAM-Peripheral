@@ -31,7 +31,7 @@ Document the registers that are used to interact with your peripheral
 
 ## How to test
 
-Explain how to use your project
+Test.py has some sample tests from the user perspective
 
 ## External hardware
 
