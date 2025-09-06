@@ -23,7 +23,7 @@ module tqvp_neuro_nav_SLAM (
     output        user_interrupt
 );
 
-    // === Registers ===
+    // === Register File ===
     reg [31:0] sensor_input;    
     reg [31:0] control_flags;   
     reg [15:0] pos_x;           
@@ -33,10 +33,10 @@ module tqvp_neuro_nav_SLAM (
     // Neuromorphic / learning registers
     reg [7:0] w_east, w_north, w_west, w_south;
     reg [7:0] decay_counter;
-    reg [7:0] prev_ui_in;
+    reg [3:0] prev_ui_in;      // shrink to 4 bits
     reg [3:0] spike_rising;
 
-    // === Write logic ===
+    // === Write logic (template-compliant partial writes) ===
     always @(posedge clk) begin
         if (!rst_n) begin
             sensor_input  <= 32'h0;
@@ -46,23 +46,29 @@ module tqvp_neuro_nav_SLAM (
             w_west  <= 8'd1;
             w_south <= 8'd1;
             decay_counter <= 8'h0;
-            prev_ui_in <= 8'h0;
+            prev_ui_in <= 4'h0;
         end else begin
-            if (address == 6'h0 && data_write_n != 2'b11)
-                sensor_input <= data_in;
-            if (address == 6'h4 && data_write_n != 2'b11)
-                control_flags <= data_in;
-
-            prev_ui_in <= ui_in;
+            // sensor_input
+            if (address == 6'h0) begin
+                if (data_write_n != 2'b11)              sensor_input[7:0]   <= data_in[7:0];
+                if (data_write_n[1] != data_write_n[0]) sensor_input[15:8]  <= data_in[15:8];
+                if (data_write_n == 2'b10)              sensor_input[31:16] <= data_in[31:16];
+            end
+            // control_flags
+            if (address == 6'h4) begin
+                if (data_write_n != 2'b11)              control_flags[7:0]   <= data_in[7:0];
+                if (data_write_n[1] != data_write_n[0]) control_flags[15:8]  <= data_in[15:8];
+                if (data_write_n == 2'b10)              control_flags[31:16] <= data_in[31:16];
+            end
+            prev_ui_in <= ui_in[3:0];  // only track lower 4 bits
         end
     end
 
-    // === Spiking detection ===
+    // === Core SLAM/Spiking Logic ===
     always @* begin
-        spike_rising = ui_in[3:0] & ~prev_ui_in[3:0];
+        spike_rising = (ui_in[3:0] & ~prev_ui_in);
     end
 
-    // === Core SLAM logic ===
     always @(posedge clk) begin
         if (!rst_n) begin
             pos_x <= 16'h0;
@@ -85,10 +91,11 @@ module tqvp_neuro_nav_SLAM (
                     if (spike_rising[2]) pos_x <= pos_x - {8'h0, w_west};
                     if (spike_rising[3]) pos_y <= pos_y - {8'h0, w_south};
 
+                    // learning / weight updates
                     if (control_flags[1]) begin
-                        if (spike_rising[0] && w_east != 8'hFF)  w_east  <= w_east  + 1;
+                        if (spike_rising[0] && w_east  != 8'hFF) w_east  <= w_east  + 1;
                         if (spike_rising[1] && w_north != 8'hFF) w_north <= w_north + 1;
-                        if (spike_rising[2] && w_west != 8'hFF)  w_west  <= w_west  + 1;
+                        if (spike_rising[2] && w_west  != 8'hFF) w_west  <= w_west  + 1;
                         if (spike_rising[3] && w_south != 8'hFF) w_south <= w_south + 1;
                     end
                 end
@@ -123,10 +130,10 @@ module tqvp_neuro_nav_SLAM (
 
     assign data_ready = 1'b1;
 
-    // === Output mapping ===
+    // === Output Mapping ===
     assign uo_out = {pos_y[3:0], pos_x[3:0]};
 
-    // === Interrupt logic ===
+    // === Interrupt Logic ===
     reg slam_interrupt;
     always @(posedge clk) begin
         if (!rst_n) begin
@@ -137,7 +144,6 @@ module tqvp_neuro_nav_SLAM (
             slam_interrupt <= 0;
         end
     end
-
     assign user_interrupt = slam_interrupt;
 
     // === Prevent unused warnings ===
