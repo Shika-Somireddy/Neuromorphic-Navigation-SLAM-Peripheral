@@ -32,6 +32,9 @@ module tqvp_neuro_nav_SLAM (
 
     localparam [15:0] THRESHOLD = 16'd10;
 
+    // uo_out spike-train register
+    reg [7:0] uo_out_reg;
+
     // === Write logic ===
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
@@ -121,7 +124,17 @@ module tqvp_neuro_nav_SLAM (
     end
 
     assign data_ready = 1'b1;
-    assign uo_out = {pos_y[3:0], pos_x[3:0]};
+
+    // === Spike-train uo_out ===
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
+            uo_out_reg <= 8'h0;
+        else begin
+            uo_out_reg[7:4] <= (pos_y >= THRESHOLD) ? 4'b1111 : 4'b0; // pos_y spikes
+            uo_out_reg[3:0] <= (pos_x >= THRESHOLD) ? 4'b1111 : 4'b0; // pos_x spikes
+        end
+    end
+    assign uo_out = uo_out_reg;
 
     // === Interrupt logic ===
     reg slam_interrupt;
