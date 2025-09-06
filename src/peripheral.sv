@@ -1,45 +1,39 @@
-/*
- * Copyright (c) 2025 Rishika Somireddy
- * SPDX-License-Identifier: Apache-2.0
- */
-
 `default_nettype none
 
 module tqvp_neuro_nav_SLAM (
-    input  logic        clk,          
-    input  logic        rst_n,        
+    input  wire        clk,          
+    input  wire        rst_n,        
 
-    input  logic [7:0]  ui_in,        
-    output logic [7:0]  uo_out,       
+    input  wire [7:0]  ui_in,        
+    output wire [7:0]  uo_out,       
 
-    input  logic [5:0]  address,      
-    input  logic [31:0] data_in,      
+    input  wire [5:0]  address,      
+    input  wire [31:0] data_in,      
 
-    input  logic [1:0]  data_write_n, 
-    input  logic [1:0]  data_read_n,  
+    input  wire [1:0]  data_write_n, 
+    input  wire [1:0]  data_read_n,  
     
-    output logic [31:0] data_out,     
-    output logic        data_ready,
-    output logic        user_interrupt
+    output reg  [31:0] data_out,     
+    output wire        data_ready,
+    output wire        user_interrupt
 );
 
     // === Registers ===
-    logic [31:0] sensor_input;    
-    logic [31:0] control_flags;   
-    logic [15:0] pos_x;           
-    logic [15:0] pos_y;           
-    logic [31:0] result_output;   
-    logic [7:0]  prev_ui_in;
-    logic [3:0]  spike_rising;
+    reg [31:0] sensor_input;    
+    reg [31:0] control_flags;   
+    reg [15:0] pos_x;           
+    reg [15:0] pos_y;           
+    reg [31:0] result_output;   
+    reg [7:0]  prev_ui_in;
+    reg [3:0]  spike_rising;
 
-    // Spike flags (single-bit, fully synthesizable)
-    logic spike_x_pos, spike_y_pos, spike_x_neg, spike_y_neg;
+    // Spike flags (single-bit)
+    reg spike_x_pos, spike_y_pos, spike_x_neg, spike_y_neg;
 
-    // Threshold for simple neuromorphic spike output
     localparam [15:0] THRESHOLD = 16'd10;
 
     // === Write logic ===
-    always_ff @(posedge clk or negedge rst_n) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             sensor_input  <= 32'h0;
             control_flags <= 32'h0;
@@ -58,7 +52,7 @@ module tqvp_neuro_nav_SLAM (
     end
 
     // === Spiking detection (async-reset safe) ===
-    always_ff @(posedge clk or negedge rst_n) begin
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             spike_rising <= 4'h0;
             spike_x_pos <= 1'b0;
@@ -75,8 +69,8 @@ module tqvp_neuro_nav_SLAM (
         end
     end
 
-    // === Core odometry logic ===
-    always_ff @(posedge clk or negedge rst_n) begin
+    // === Core odometry logic (single driver per signal) ===
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             pos_x <= 16'h0;
             pos_y <= 16'h0;
@@ -88,23 +82,35 @@ module tqvp_neuro_nav_SLAM (
                 2'd1: pos_y <= pos_y + sensor_input[15:0];
                 2'd2: pos_x <= pos_x - sensor_input[15:0];
                 2'd3: pos_y <= pos_y - sensor_input[15:0];
-                default: ;
+                default: begin
+                    pos_x <= pos_x;
+                    pos_y <= pos_y;
+                end
             endcase
 
-            // Simple spike-based updates
-            if (spike_x_pos && pos_x < 16'hFFFF) pos_x <= pos_x + 1;
-            if (spike_y_pos && pos_y < 16'hFFFF) pos_y <= pos_y + 1;
-            if (spike_x_neg && pos_x > 0) pos_x <= pos_x - 1;
-            if (spike_y_neg && pos_y > 0) pos_y <= pos_y - 1;
+            // Spike-based updates
+            if (spike_x_pos && pos_x < 16'hFFFF)
+                pos_x <= pos_x + 1;
+            if (spike_y_pos && pos_y < 16'hFFFF)
+                pos_y <= pos_y + 1;
+            if (spike_x_neg && pos_x > 0)
+                pos_x <= pos_x - 1;
+            if (spike_y_neg && pos_y > 0)
+                pos_y <= pos_y - 1;
 
-            // Thresholded spike output
+            // Thresholded output
             result_output[15:0]  <= (pos_x >= THRESHOLD) ? 16'h1 : 16'h0;
             result_output[31:16] <= (pos_y >= THRESHOLD) ? 16'h1 : 16'h0;
+        end else begin
+            // Maintain values if control flag not set
+            pos_x <= pos_x;
+            pos_y <= pos_y;
+            result_output <= result_output;
         end
     end
 
-    // === Readback ===
-    always_comb begin
+    // === Readback logic ===
+    always @* begin
         case (address)
             6'h0: data_out = sensor_input;
             6'h4: data_out = control_flags;
@@ -118,8 +124,8 @@ module tqvp_neuro_nav_SLAM (
     assign uo_out = {pos_y[3:0], pos_x[3:0]};
 
     // === Interrupt logic ===
-    logic slam_interrupt;
-    always_ff @(posedge clk or negedge rst_n) begin
+    reg slam_interrupt;
+    always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
             slam_interrupt <= 1'b0;
         else if ((pos_x > 16'd1000) || (pos_y > 16'd1000))
@@ -130,7 +136,7 @@ module tqvp_neuro_nav_SLAM (
     assign user_interrupt = slam_interrupt;
 
     // === Prevent unused warnings ===
-    logic _unused;
+    wire _unused;
     assign _unused = &{data_read_n, 1'b0};
 
 endmodule
