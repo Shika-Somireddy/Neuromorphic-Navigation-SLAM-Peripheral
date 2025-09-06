@@ -34,7 +34,7 @@ async def test_neuro_nav_slam(dut):
 
     # Read position output
     pos = await tqv.read_word_reg(8)
-    assert pos == 0x00000020, f"Expected pos_x=0x20, got {hex(pos)}"
+    assert pos == 0x00300020, f"Expected pos_y=0x30, pos_x=0x20, got {hex(pos)}"
 
     # Check output mapping (lower 4 bits of pos_y and pos_x)
     assert dut.uo_out.value == 0x20, f"Expected uo_out=0x20, got {hex(dut.uo_out.value)}"
