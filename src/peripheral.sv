@@ -1,6 +1,8 @@
 /* Copyright (c) 2025 Rishika Somireddy
- * SPDX-License-Identifier: Apache-2.0 */
-default_nettype none
+* SPDX-License-Identifier: Apache-2.0 
+*/
+
+`default_nettype none
 
 module tqvp_neuro_nav_SLAM (
     input  logic        clk,
