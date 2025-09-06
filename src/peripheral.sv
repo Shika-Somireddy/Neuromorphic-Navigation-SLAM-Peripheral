@@ -1,155 +1,100 @@
-`default_nettype none
+/* Copyright (c) 2025 Rishika Somireddy
+ * SPDX-License-Identifier: Apache-2.0 */
+default_nettype none
 
 module tqvp_neuro_nav_SLAM (
-    input  wire        clk,          
-    input  wire        rst_n,        
-
-    input  wire [7:0]  ui_in,        
-    output wire [7:0]  uo_out,       
-
-    input  wire [5:0]  address,      
-    input  wire [31:0] data_in,      
-
-    input  wire [1:0]  data_write_n, 
-    input  wire [1:0]  data_read_n,  
-    
-    output reg  [31:0] data_out,     
-    output wire        data_ready,
-    output wire        user_interrupt
+    input  logic        clk,
+    input  logic        rst_n,
+    input  logic [7:0]  ui_in,
+    output logic [7:0]  uo_out,
+    input  logic [5:0]  address,
+    input  logic [31:0] data_in,
+    input  logic [1:0]  data_write_n,
+    input  logic [1:0]  data_read_n,
+    output logic [31:0] data_out,
+    output logic        data_ready,
+    output logic        user_interrupt
 );
 
-    // === Registers ===
-    reg [31:0] sensor_input;    
-    reg [31:0] control_flags;   
-    reg [15:0] pos_x;           
-    reg [15:0] pos_y;           
-    reg [31:0] result_output;   
-    reg [7:0]  prev_ui_in;
-    reg [3:0]  spike_rising;
+    // === Neuromorphic Register File ===
+    logic [31:0] spike_packet;       // Encoded spike: {timestamp, neuron_id}
+    logic [31:0] control_flags;      // enable/reset/etc.
+    logic [15:0] neuron_pos_x [0:15]; // 16 place cells for X
+    logic [15:0] neuron_pos_y [0:15]; // 16 place cells for Y
+    logic [31:0] result_output;      // Encoded position from active neurons
 
-    // Spike flags (single-bit)
-    reg spike_x_pos, spike_y_pos, spike_x_neg, spike_y_neg;
+    // === Spike Decoder ===
+    logic [3:0] active_neuron_id;
+    logic [15:0] spike_weight;
 
-    localparam [15:0] THRESHOLD = 16'd10;
+    always_comb begin
+        active_neuron_id = spike_packet[19:16]; // neuron ID
+        spike_weight     = spike_packet[15:0];  // movement magnitude
+    end
 
-    // uo_out spike-train register
-    reg [7:0] uo_out_reg;
-
-    // === Write logic ===
-    always @(posedge clk or negedge rst_n) begin
+    // === Write Logic ===
+    always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            sensor_input  <= 32'h0;
-            control_flags <= 32'h0;
-            pos_x <= 16'h0;
-            pos_y <= 16'h0;
-            result_output <= 32'h0;
-            prev_ui_in <= 8'h0;
+            spike_packet   <= 32'h0;
+            control_flags  <= 32'h0;
         end else begin
-            if (address == 6'h0 && data_write_n != 2'b11)
-                sensor_input <= data_in;
-            if (address == 6'h4 && data_write_n != 2'b11)
-                control_flags <= data_in;
-
-            prev_ui_in <= ui_in;
+            unique case (address)
+                6'h0: if (data_write_n != 2'b11) spike_packet  <= data_in;
+                6'h4: if (data_write_n != 2'b11) control_flags <= data_in;
+                default: ;
+            endcase
         end
     end
 
-    // === Spiking detection (async-reset safe) ===
-    always @(posedge clk or negedge rst_n) begin
+    // === Neuromorphic SLAM Core ===
+    always_ff @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            spike_rising <= 4'h0;
-            spike_x_pos <= 1'b0;
-            spike_y_pos <= 1'b0;
-            spike_x_neg <= 1'b0;
-            spike_y_neg <= 1'b0;
-        end else begin
-            spike_rising <= ui_in[3:0] & ~prev_ui_in[3:0];
-
-            spike_x_pos <= spike_rising[0];
-            spike_y_pos <= spike_rising[1];
-            spike_x_neg <= spike_rising[2];
-            spike_y_neg <= spike_rising[3];
-        end
-    end
-
-    // === Core odometry logic (single driver per signal) ===
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n) begin
-            pos_x <= 16'h0;
-            pos_y <= 16'h0;
+            for (int i = 0; i < 16; i++) begin
+                neuron_pos_x[i] <= 16'h0;
+                neuron_pos_y[i] <= 16'h0;
+            end
             result_output <= 32'h0;
         end else if (control_flags[0]) begin
-            // Sensor-based movement
-            case (sensor_input[17:16])
-                2'd0: pos_x <= pos_x + sensor_input[15:0];
-                2'd1: pos_y <= pos_y + sensor_input[15:0];
-                2'd2: pos_x <= pos_x - sensor_input[15:0];
-                2'd3: pos_y <= pos_y - sensor_input[15:0];
-                default: begin
-                    pos_x <= pos_x;
-                    pos_y <= pos_y;
-                end
-            endcase
+            // Hebbian-like update: reinforce active neuron
+            neuron_pos_x[active_neuron_id] <= neuron_pos_x[active_neuron_id] + spike_weight;
+            neuron_pos_y[active_neuron_id] <= neuron_pos_y[active_neuron_id] + spike_weight;
 
-            // Spike-based updates
-            if (spike_x_pos && pos_x < 16'hFFFF)
-                pos_x <= pos_x + 1;
-            if (spike_y_pos && pos_y < 16'hFFFF)
-                pos_y <= pos_y + 1;
-            if (spike_x_neg && pos_x > 0)
-                pos_x <= pos_x - 1;
-            if (spike_y_neg && pos_y > 0)
-                pos_y <= pos_y - 1;
-
-            // Thresholded output
-            result_output[15:0]  <= (pos_x >= THRESHOLD) ? 16'h1 : 16'h0;
-            result_output[31:16] <= (pos_y >= THRESHOLD) ? 16'h1 : 16'h0;
-        end else begin
-            // Maintain values if control flag not set
-            pos_x <= pos_x;
-            pos_y <= pos_y;
-            result_output <= result_output;
+            // Aggregate position from active neurons (simplified)
+            result_output <= {neuron_pos_y[active_neuron_id], neuron_pos_x[active_neuron_id]};
         end
     end
 
-    // === Readback logic ===
-    always @* begin
-        case (address)
-            6'h0: data_out = sensor_input;
+    // === Readback ===
+    always_comb begin
+        unique case (address)
+            6'h0: data_out = spike_packet;
             6'h4: data_out = control_flags;
-            6'h8: data_out = {pos_y, pos_x};
-            6'hC: data_out = result_output;
+            6'h8: data_out = result_output;
             default: data_out = 32'h0;
         endcase
     end
 
     assign data_ready = 1'b1;
 
-    // === Spike-train uo_out ===
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            uo_out_reg <= 8'h0;
-        else begin
-            uo_out_reg[7:4] <= (pos_y >= THRESHOLD) ? 4'b1111 : 4'b0; // pos_y spikes
-            uo_out_reg[3:0] <= (pos_x >= THRESHOLD) ? 4'b1111 : 4'b0; // pos_x spikes
+    // === Output Mapping ===
+    assign uo_out = {result_output[3:0], result_output[19:16]}; // simplified spike trace
+
+    // === Interrupt Logic ===
+    logic slam_interrupt;
+    always_ff @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            slam_interrupt <= 1'b0;
+        end else if (result_output[31:16] > 16'd1000 || result_output[15:0] > 16'd1000) begin
+            slam_interrupt <= 1'b1;
+        end else if (address == 6'h10 && data_write_n != 2'b11 && data_in[0]) begin
+            slam_interrupt <= 1'b0;
         end
     end
-    assign uo_out = uo_out_reg;
 
-    // === Interrupt logic ===
-    reg slam_interrupt;
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            slam_interrupt <= 1'b0;
-        else if ((pos_x > 16'd1000) || (pos_y > 16'd1000))
-            slam_interrupt <= 1'b1;
-        else if (address == 6'h10 && data_write_n != 2'b11 && data_in[0])
-            slam_interrupt <= 1'b0;
-    end
     assign user_interrupt = slam_interrupt;
 
-    // === Prevent unused warnings ===
-    wire _unused;
-    assign _unused = &{data_read_n, 1'b0};
+    // === Prevent Unused Signal Warnings ===
+    logic _unused;
+    assign _unused = &{ui_in, data_read_n, 1'b0};
 
 endmodule
