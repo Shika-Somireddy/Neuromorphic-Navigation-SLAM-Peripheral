@@ -1,3 +1,8 @@
+/*
+ * Copyright (c) 2025 Rishika Somireddy
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 `default_nettype none
 
 module tqvp_neuro_nav_SLAM (
@@ -27,7 +32,7 @@ module tqvp_neuro_nav_SLAM (
     logic [7:0]  prev_ui_in;
     logic [3:0]  spike_rising;
 
-    // Spike flags (synthesizable)
+    // Spike flags (single-bit, fully synthesizable)
     logic spike_x_pos, spike_y_pos, spike_x_neg, spike_y_neg;
 
     // Threshold for simple neuromorphic spike output
@@ -52,17 +57,22 @@ module tqvp_neuro_nav_SLAM (
         end
     end
 
-    // === Spiking detection ===
+    // === Spiking detection (async-reset safe) ===
     always_ff @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
+        if (!rst_n) begin
             spike_rising <= 4'h0;
-        else
+            spike_x_pos <= 1'b0;
+            spike_y_pos <= 1'b0;
+            spike_x_neg <= 1'b0;
+            spike_y_neg <= 1'b0;
+        end else begin
             spike_rising <= ui_in[3:0] & ~prev_ui_in[3:0];
 
-        spike_x_pos <= spike_rising[0];
-        spike_y_pos <= spike_rising[1];
-        spike_x_neg <= spike_rising[2];
-        spike_y_neg <= spike_rising[3];
+            spike_x_pos <= spike_rising[0];
+            spike_y_pos <= spike_rising[1];
+            spike_x_neg <= spike_rising[2];
+            spike_y_neg <= spike_rising[3];
+        end
     end
 
     // === Core odometry logic ===
